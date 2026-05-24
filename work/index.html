@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>青春症候群 - 目录</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: "PingFang SC", sans-serif; background: #f7f5f0; color: #242424; padding: 5rem 2rem; display: flex; justify-content: center; }
+        .container { width: 100%; max-width: 650px; }
+        /* ---------- 书名（可改） ---------- */
+        .main-title { font-size: 2.2rem; margin-bottom: 3rem; text-align: center; letter-spacing: 0.15em; font-weight: 500; color: #3a3a3a; }
+        .chapter-list { list-style: none; }
+        .chapter-card {
+            background: #fffef9; border-radius: 14px; padding: 1.6rem 2rem; margin-bottom: 1.2rem;
+            text-align: center; position: relative; transition: 0.2s; box-shadow: 0 2px 10px rgba(0,0,0,0.03);
+        }
+        .chapter-card:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,0.06); }
+        .chapter-title-link { font-size: 1.25rem; font-weight: 500; color: #3a3a3a; text-decoration: none; }
+        .chapter-quote-preview { font-size: 0.85rem; color: #b0b0b0; font-style: italic; margin-top: 0.4rem; }
+        .delete-icon { position: absolute; top: 10px; right: 16px; color: #cc8888; cursor: pointer; opacity: 0; transition: 0.2s; }
+        .chapter-card:hover .delete-icon { opacity: 0.6; }
+        .add-button { position: fixed; bottom: 2rem; left: 2rem; width: 3.8rem; height: 3.8rem; background: #3a3a3a; color: #f7f5f0; border-radius: 50%; display: flex; justify-content: center; align-items: center; font-size: 2rem; cursor: pointer; box-shadow: 0 4px 14px rgba(0,0,0,0.15); }
+        .add-button:hover { background: #1a1a1a; }
+        .modal { position: fixed; inset: 0; background: rgba(247,245,240,0.98); display: none; justify-content: center; align-items: center; padding: 2rem; z-index: 200; }
+        .modal-content { width: 100%; max-width: 700px; background: #fffef9; border-radius: 18px; padding: 2rem 2.5rem; box-shadow: 0 12px 40px rgba(0,0,0,0.08);max-height: 85vh;/* 限制弹窗最大高度，留出上下边距 */overflow-y: auto;/* 内容超出就显示垂直滚动条 */ }
+        .modal-title { font-size: 1.3rem; margin-bottom: 1.8rem; color: #555; }
+        .modal label { font-size: 0.9rem; color: #888; display: block; margin-bottom: 0.3rem; }
+        .modal input[type="text"], .modal textarea { width: 100%; padding: 0.8rem; margin-bottom: 1.2rem; border: 1px solid #e0dbd3; background: #faf9f6; font-family: inherit; font-size: 1rem; border-radius: 8px; outline: none; }
+        .modal textarea { height: 45vh; resize: none; line-height: 1.6; }
+        .btn-group { display: flex; gap: 1rem; justify-content: flex-end; }
+        .btn { padding: 0.7rem 2rem; border: none; cursor: pointer; font-size: 1rem; border-radius: 8px; }
+        .btn-save { background: #3a3a3a; color: #f7f5f0; }
+        .btn-save:hover { background: #1a1a1a; }
+        .btn-cancel { background: #e8e3da; color: #555; }
+        .upload-label { cursor: pointer; color: #888; font-size: 0.9rem; }
+        .preview-img { max-width: 200px; max-height: 150px; display: none; margin-top: 0.5rem; border-radius: 8px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- 书名可在这里修改 -->
+        <h1 class="main-title">青春症候群</h1>
+        <ul class="chapter-list" id="chapterList"></ul>
+    </div>
+    <div class="add-button" onclick="openModal()">＋</div>
+
+    <div class="modal" id="uploadModal">
+        <div class="modal-content">
+            <div class="modal-title">📝 添加新章节</div>
+            <label for="titleInput">章节标题</label>
+            <input type="text" id="titleInput" placeholder="">
+            <label for="quoteInput">摘录（可选）</label>
+            <input type="text" id="quoteInput" placeholder="">
+            <label for="bodyInput">正文（段落之间空一行）</label>
+            <textarea id="bodyInput" placeholder="开始写正文…"></textarea>
+            <div style="margin-bottom:1rem;">
+                <label class="upload-label" for="imageInput">🖼️ 上传插图（可选）</label>
+                <input type="file" id="imageInput" accept="image/*" style="display:none;" onchange="previewImage(event)">
+                <img id="previewImg" class="preview-img" />
+            </div>
+            <div class="btn-group">
+                <button class="btn btn-cancel" onclick="closeModal()">取消</button>
+                <button class="btn btn-save" onclick="saveChapter()">一键发布</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let db;
+        const request = indexedDB.open("NovelDB", 1);
+        request.onupgradeneeded = e => {
+            db = e.target.result;
+            if (!db.objectStoreNames.contains('chapters')) {
+                db.createObjectStore('chapters', { keyPath: 'id', autoIncrement: true });
+            }
+        };
+        request.onsuccess = e => { db = e.target.result; renderList(); };
+        request.onerror = () => console.error('数据库打开失败');
+
+        let selectedImageData = null;
+        function previewImage(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = e => {
+                selectedImageData = e.target.result;
+                const img = document.getElementById('previewImg');
+                img.src = selectedImageData;
+                img.style.display = 'block';
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function openModal() { document.getElementById('uploadModal').style.display = 'flex'; }
+        function closeModal() {
+            document.getElementById('uploadModal').style.display = 'none';
+            document.getElementById('titleInput').value = '';
+            document.getElementById('quoteInput').value = '';
+            document.getElementById('bodyInput').value = '';
+            document.getElementById('previewImg').style.display = 'none';
+            selectedImageData = null;
+            document.getElementById('imageInput').value = '';
+        }
+
+        function saveChapter() {
+            const title = document.getElementById('titleInput').value.trim();
+            const quote = document.getElementById('quoteInput').value.trim();
+            const bodyRaw = document.getElementById('bodyInput').value.trim();
+            if (!title || !bodyRaw) return alert('标题和正文不能为空');
+            const paragraphs = bodyRaw.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+            const tx = db.transaction('chapters', 'readwrite');
+            tx.objectStore('chapters').add({ title, quote, paragraphs, image: selectedImageData || null });
+            tx.oncomplete = () => { closeModal(); renderList(); };
+        }
+
+        function renderList() {
+            if (!db) return;
+            const tx = db.transaction('chapters', 'readonly');
+            tx.objectStore('chapters').getAll().onsuccess = e => {
+                const chapters = e.target.result;
+                const list = document.getElementById('chapterList');
+                if (!chapters.length) {
+                    list.innerHTML = '<p style="text-align:center; color:#aaa;">还没有章节，点左下角＋开始吧</p>';
+                    return;
+                }
+                list.innerHTML = chapters.map(ch => `
+                    <li class="chapter-card">
+                        <a class="chapter-title-link" href="read.html?id=${ch.id}">${ch.title}</a>
+                        ${ch.quote ? `<div class="chapter-quote-preview">${ch.quote}</div>` : ''}
+                        <span class="delete-icon" onclick="event.stopPropagation(); deleteChapter(${ch.id})">✕</span>
+                    </li>
+                `).join('');
+            };
+        }
+
+        function deleteChapter(id) {
+            if (!confirm('确定删除这一章吗？')) return;
+            const tx = db.transaction('chapters', 'readwrite');
+            tx.objectStore('chapters').delete(id);
+            tx.oncomplete = renderList;
+        }
+    </script>
+</body>
+</html>
