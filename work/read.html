@@ -12,11 +12,13 @@
         .book-main-title { font-family: "PingFang SC", sans-serif; font-size: 1.1rem; font-weight: 500; letter-spacing: 0.08em; color: #3a3a3a; margin-bottom: 5rem; }
         .chapter-number { font-family: "Source Han Sans SC", sans-serif; font-size: 0.85rem; font-weight: 700; letter-spacing: 0.25em; color: #888; margin-bottom: 0.8rem; }
         .chapter-title { font-size: 2.2rem; font-weight: 500; color: #1a1a1a; margin-bottom: 2.5rem; }
-        .chapter-quote { font-size: 0.9rem; color: #999; font-style: italic; line-height: 1.8; padding-left: 1.2rem; border-left: 2px solid #e0dbd3; margin-bottom: 4.5rem; display: none; }
+        .chapter-quote { font-size: 0.9rem; color: #999; font-style: italic; line-height: 1.8; padding-left: 1.2rem; border-left: 2px solid #e0dbd3; margin-bottom: 4.5rem; }
         .illustration-container { width: 100%; margin-bottom: 4rem; }
         .illustration-container img { width: 100%; height: auto; border-radius: 8px; }
         .content p { font-size: 1.15rem; margin-bottom: 2.5rem; text-align: justify; text-indent: 2em; letter-spacing: 0.03em; }
         .content p.no-indent { text-indent: 0; }
+        .loading { text-align: center; padding: 3rem; color: #aaa; }
+        .error { text-align: center; padding: 3rem; color: #e88; }
         @media (min-width: 769px) { .center-panel { width: 780px; padding: 6rem 2rem; } }
         @media (max-width: 768px) { .center-panel { padding: 3rem 1.5rem; } .chapter-title { font-size: 1.8rem; } }
     </style>
@@ -28,8 +30,8 @@
         <div class="chapter-number" id="chapterNumber">CH. 01</div>
         <h1 class="chapter-title" id="chapterTitle">加载中...</h1>
         <div class="chapter-quote" id="chapterQuote"></div>
-        <div class="illustration-container">
-            <img id="chapterImage" src="" alt="插图" style="display: none;" />
+        <div class="illustration-container" id="illustrationContainer">
+            <img id="chapterImage" src="" alt="插图" />
         </div>
         <div class="content" id="chapterContent"></div>
         <div style="text-align:center; margin-top:2.5rem;">
@@ -41,126 +43,147 @@
 </div>
 
 <script>
+    const repoUrl = 'https://api.github.com/repos/moerfansai/moerfansai/contents/work/_chapters';
+    
     const params = new URLSearchParams(window.location.search);
-    const id = parseInt(params.get('id'));
-
+    const slug = params.get('slug');
+    
     const titleEl = document.getElementById('chapterTitle');
     const numberEl = document.getElementById('chapterNumber');
     const quoteEl = document.getElementById('chapterQuote');
     const contentEl = document.getElementById('chapterContent');
     const imgEl = document.getElementById('chapterImage');
+    const imgContainer = document.getElementById('illustrationContainer');
     const prevBtn = document.getElementById('navPrev');
     const nextBtn = document.getElementById('navNext');
-
-    const dbReq = indexedDB.open("NovelDB", 1);
-    dbReq.onsuccess = function(e) {
-        const db = e.target.result;
-        const tx = db.transaction('chapters', 'readonly');
-        tx.objectStore('chapters').get(id).onsuccess = function(e) {
-            const ch = e.target.result;
-            if (!ch) {
-                titleEl.textContent = '章节不存在';
-                numberEl.textContent = '';
-                quoteEl.style.display = 'none';
-                contentEl.innerHTML = '<p>请返回目录添加章节。</p>';
-                imgEl.style.display = 'none';
-                prevBtn.style.display = 'none';
-                nextBtn.style.display = 'none';
-                return;
-            }
-
-            // 1. 填标题
-            titleEl.textContent = ch.title;
-
-            // 2. 动态计算章节编号（基于当前所有章节排序后的位置）
-            getChapterIndex(db, id, function(idx) {
-                if (idx > 0) {
-                    numberEl.textContent = 'CH. ' + (idx < 10 ? '0' + idx : idx);
-                } else {
-                    numberEl.textContent = '';
-                }
-            });
-
-            // 3. 摘录
-            if (ch.quote && ch.quote.trim()) {
-                quoteEl.textContent = ch.quote;
+    
+    async function loadChapter() {
+        if (!slug) {
+            showError('缺少章节参数');
+            return;
+        }
+        
+        try {
+            const response = await fetch(`${repoUrl}/${slug}.md`);
+            if (!response.ok) throw new Error('章节不存在');
+            
+            const data = await response.json();
+            const content = atob(data.content);
+            const chapter = parseMarkdown(content);
+            
+            titleEl.textContent = chapter.title;
+            document.title = chapter.title + ' - 青春症候羣';
+            
+            if (chapter.quote) {
+                quoteEl.textContent = chapter.quote;
                 quoteEl.style.display = 'block';
             } else {
                 quoteEl.style.display = 'none';
             }
-
-            // 4. 正文段落 —— 关键：跳过与标题相同的第一段
-            const paragraphs = ch.paragraphs || [];
-            let startIdx = 0;
-            if (paragraphs.length > 0) {
-                const first = paragraphs[0].trim();
-                const titleText = ch.title.trim();
-                // 如果第一个段落就是标题，或者以标题开头，跳过它
-                if (first === titleText || first.startsWith(titleText)) {
-                    startIdx = 1;
-                }
-            }
-
-            contentEl.innerHTML = '';
-            for (let i = startIdx; i < paragraphs.length; i++) {
-                const p = document.createElement('p');
-                p.textContent = paragraphs[i];
-                if (i === startIdx) p.classList.add('no-indent'); // 首段不缩进
-                contentEl.appendChild(p);
-            }
-            if (contentEl.children.length === 0) {
-                contentEl.innerHTML = '<p style="color:#888;">本章暂无正文内容。</p>';
-            }
-
-            // 5. 插图
-            if (ch.image) {
-                imgEl.src = ch.image;
-                imgEl.style.display = 'block';
+            
+            if (chapter.image) {
+                imgEl.src = chapter.image;
+                imgContainer.style.display = 'block';
             } else {
-                imgEl.style.display = 'none';
+                imgContainer.style.display = 'none';
             }
-
-            document.title = ch.title + ' - 青春症候羣';
-
-            // 6. 设置上一章 / 下一章链接
-            setupNav(db, id);
-        };
-    };
-
-    // 获取当前章节在所有章节中的顺序（1-based）
-    function getChapterIndex(db, currentId, callback) {
-        const tx = db.transaction('chapters', 'readonly');
-        tx.objectStore('chapters').getAll().onsuccess = function(e) {
-            const allChapters = e.target.result;
-            const sortedIds = allChapters.map(c => c.id).sort((a, b) => a - b);
-            const position = sortedIds.indexOf(currentId) + 1;
-            callback(position);
-        };
+            
+            contentEl.innerHTML = markdownToHtml(chapter.body);
+            
+            await setupNav();
+        } catch (error) {
+            showError(error.message);
+        }
     }
-
-    // 设置上下章导航
-    function setupNav(db, currentId) {
-        const tx = db.transaction('chapters', 'readonly');
-        tx.objectStore('chapters').getAll().onsuccess = function(e) {
-            const allChapters = e.target.result;
-            const sortedIds = allChapters.map(c => c.id).sort((a, b) => a - b);
-            const idx = sortedIds.indexOf(currentId);
-
-            if (idx > 0) {
-                prevBtn.href = 'read.html?id=' + sortedIds[idx - 1];
+    
+    async function setupNav() {
+        try {
+            const response = await fetch(repoUrl);
+            if (!response.ok) return;
+            
+            const files = await response.json();
+            const chapterFiles = files.filter(f => f.name.endsWith('.md'));
+            const slugs = chapterFiles.map(f => f.name.replace('.md', '')).sort();
+            
+            const currentIndex = slugs.indexOf(slug);
+            
+            if (currentIndex > 0) {
+                prevBtn.href = `read.html?slug=${slugs[currentIndex - 1]}`;
                 prevBtn.style.display = 'inline-block';
             } else {
                 prevBtn.style.display = 'none';
             }
-
-            if (idx < sortedIds.length - 1) {
-                nextBtn.href = 'read.html?id=' + sortedIds[idx + 1];
+            
+            if (currentIndex < slugs.length - 1) {
+                nextBtn.href = `read.html?slug=${slugs[currentIndex + 1]}`;
                 nextBtn.style.display = 'inline-block';
             } else {
                 nextBtn.style.display = 'none';
             }
+            
+            if (slugs.length > 0) {
+                numberEl.textContent = 'CH. ' + String(currentIndex + 1).padStart(2, '0');
+            }
+        } catch (error) {
+            console.log('导航加载失败:', error);
+        }
+    }
+    
+    function parseMarkdown(content) {
+        const lines = content.split('\n');
+        const meta = {};
+        let inMeta = false;
+        let bodyStart = 0;
+        
+        for (let i = 0; i < lines.length; i++) {
+            if (lines[i].trim() === '---') {
+                inMeta = !inMeta;
+                if (!inMeta) {
+                    bodyStart = i + 1;
+                    break;
+                }
+            } else if (inMeta && lines[i].includes(':')) {
+                const [key, value] = lines[i].split(':').map(s => s.trim());
+                meta[key] = value.replace(/^["']|["']$/g, '');
+            }
+        }
+        
+        return {
+            title: meta.title || '未命名章节',
+            quote: meta.quote || '',
+            image: meta.image || '',
+            body: lines.slice(bodyStart).join('\n')
         };
     }
+    
+    function markdownToHtml(md) {
+        let html = md;
+        html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+        html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+        html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+        html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+        html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+        html = html.replace(/!\[([^\]]+)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" style="max-width:100%;border-radius:8px;margin:1rem 0;" />');
+        html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
+        
+        const paragraphs = html.split(/\n\n+/);
+        return paragraphs.map((p, i) => {
+            if (/^<h[1-3]/.test(p)) return p;
+            return `<p${i === 0 ? ' class="no-indent"' : ''}>${p}</p>`;
+        }).join('');
+    }
+    
+    function showError(message) {
+        titleEl.textContent = '加载失败';
+        numberEl.textContent = '';
+        quoteEl.style.display = 'none';
+        imgContainer.style.display = 'none';
+        contentEl.innerHTML = `<p class="error">${message}</p>`;
+        prevBtn.style.display = 'none';
+        nextBtn.style.display = 'none';
+    }
+    
+    loadChapter();
 </script>
 </body>
 </html>
