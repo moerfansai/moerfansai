@@ -1,0 +1,9 @@
+title: "青春症候群"
+description: "个人文学作品集"
+baseurl: ""
+url: "https://822433xyz.netlify.app"
+
+collections:
+  chapters:
+    output: true
+    permalink: /chapter/:path/
